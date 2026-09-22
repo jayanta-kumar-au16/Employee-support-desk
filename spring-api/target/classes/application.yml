@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: employee-support-spring-api
+
+python-service:
+  base-url: ${PYTHON_SERVICE_BASE_URL:http://localhost:8000}
+  connect-timeout: 2s
+  read-timeout: 5s
