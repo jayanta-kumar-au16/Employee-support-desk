@@ -2,6 +2,8 @@ package com.employee.support.answer;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import com.employee.support.batch.InternalDocumentRequest;
+import com.employee.support.batch.DocumentResult;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -41,12 +43,25 @@ public class PythonClient {
                 .retrieve()
                 .body(AnswerResponse.class);
 
-            if (response == null) {
-                throw new PythonServiceException("Python service returned an empty response", null);
+            if (response == null || !response.valid()) {
+                throw new PythonServiceException("Python service returned an invalid response", null);
             }
             return response;
         } catch (PythonServiceException exception) {
             throw exception;
+        } catch (RestClientException exception) {
+            throw new PythonServiceException("Python service is unavailable or returned an invalid response", exception);
+        }
+    }
+
+    public DocumentResult document(InternalDocumentRequest request) {
+        try {
+            DocumentResult response = restClient.post().uri("/internal/document").body(request)
+                .retrieve().body(DocumentResult.class);
+            if (response == null || !response.validFor(request.documentId())) {
+                throw new PythonServiceException("Python service returned an invalid document result", null);
+            }
+            return response;
         } catch (RestClientException exception) {
             throw new PythonServiceException("Python service is unavailable or returned an invalid response", exception);
         }

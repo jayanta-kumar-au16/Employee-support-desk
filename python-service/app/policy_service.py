@@ -1,116 +1,73 @@
 from datetime import date
 from typing import Any
+import re
 
+from app.evidence import BENEFIT_TERMS, benefits, matches, policy_fact
 from app.models import Citation, PolicyAnswer, PolicyStatus
 from app.policy_repository import PolicyRepository
-
-
-BENEFIT_TERMS: dict[str, tuple[str, ...]] = {
-    "certification": ("certification",),
-    "home-office": ("home-office", "home office"),
-    "travel": ("travel",),
-    "training": ("training",),
-    "wellness": ("wellness", "gym"),
-}
+from app.provider import GenerationService
 
 
 class PolicyService:
-    def __init__(self, repository: PolicyRepository) -> None:
+    def __init__(self, repository: PolicyRepository, generation: GenerationService | None = None) -> None:
         self._repository = repository
-
-    def answer(
-        self,
-        tenant: str,
-        role: str,
-        as_of: date,
-        benefit: str,
-    ) -> PolicyAnswer:
-        normalized_benefit = benefit.strip().lower()
-        terms = BENEFIT_TERMS.get(normalized_benefit, (normalized_benefit,))
-
-        eligible = [
-            policy
-            for policy in self._repository.find_all()
-            if self._is_eligible(policy, tenant, role, as_of)
-            and self._is_relevant(policy, terms)
-        ]
-
-        # A duplicated record with the same ID and text is one piece of evidence,
-        # not a policy conflict. Sorting keeps results stable if JSON order changes.
-        unique = {
-            (policy["id"], policy["text"]): policy
-            for policy in eligible
-        }
-        policies = sorted(unique.values(), key=lambda policy: policy["id"])
-
-        if not policies:
-            return PolicyAnswer(
-                status=PolicyStatus.INSUFFICIENT_EVIDENCE,
-                answer=None,
-                citations=[],
-            )
-
-        citations = [
-            Citation(chunk_id=policy["id"], quote=policy["text"])
-            for policy in policies
-        ]
-
-        if len({policy["text"] for policy in policies}) > 1:
-            return PolicyAnswer(
-                status=PolicyStatus.CONFLICT,
-                answer=None,
-                citations=citations,
-            )
-
-        return PolicyAnswer(
-            status=PolicyStatus.ANSWERED,
-            answer=policies[0]["text"],
-            citations=citations,
-        )
-
-    def answer_question(
-        self,
-        tenant: str,
-        role: str,
-        as_of: date,
-        question: str,
-    ) -> PolicyAnswer:
-        normalized_question = question.casefold()
-        matched_benefits = [
-            benefit
-            for benefit, terms in BENEFIT_TERMS.items()
-            if any(term.casefold() in normalized_question for term in terms)
-        ]
-
-        # A question with no identifiable benefit, or more than one benefit,
-        # cannot be safely answered from this small deterministic corpus.
-        if len(matched_benefits) != 1:
-            return PolicyAnswer(
-                status=PolicyStatus.INSUFFICIENT_EVIDENCE,
-                answer=None,
-                citations=[],
-            )
-
-        return self.answer(tenant, role, as_of, matched_benefits[0])
+        self._generation = generation or GenerationService()
 
     @staticmethod
-    def _is_eligible(
-        policy: dict[str, Any],
-        tenant: str,
-        role: str,
-        as_of: date,
-    ) -> bool:
-        effective_from = date.fromisoformat(policy["effective_from"])
-        effective_to = date.fromisoformat(policy["effective_to"])
+    def insufficient() -> PolicyAnswer:
+        return PolicyAnswer(status=PolicyStatus.INSUFFICIENT_EVIDENCE, answer=None, citations=[])
 
+    def answer(self, tenant: str, role: str, as_of: date, benefit: str,
+               required_fact: str | None = None) -> PolicyAnswer:
+        normalized = benefit.strip().lower()
+        terms = BENEFIT_TERMS.get(normalized, (normalized,))
+        eligible = [
+            p for p in self._repository.find_all()
+            if self._is_eligible(p, tenant, role, as_of)
+            and self._is_relevant(p, terms)
+            and policy_fact(p["text"]) is not None
+        ]
+        unique = {(p["id"], p["text"]): p for p in eligible}
+        policies = sorted(unique.values(), key=lambda p: (p["id"], p["text"]))
+        if required_fact:
+            policies = [p for p in policies if policy_fact(p["text"])[0] == required_fact]
+        if not policies:
+            return self.insufficient()
+        citations = [Citation(chunk_id=p["id"], quote=p["text"]) for p in policies]
+        facts: dict[str, set] = {}
+        for p in policies:
+            kind, value = policy_fact(p["text"])
+            facts.setdefault(kind, set()).add(value)
+        # Complementary amount and approval rules are not automatically a conflict.
+        if any(len(values) > 1 for values in facts.values()):
+            return PolicyAnswer(status=PolicyStatus.CONFLICT, answer=None, citations=citations)
+        answer = self._generation.answer(tuple(p["text"] for p in policies))
+        return PolicyAnswer(status=PolicyStatus.ANSWERED, answer=answer, citations=citations)
+
+    def answer_question(self, tenant: str, role: str, as_of: date, question: str) -> PolicyAnswer:
+        matched = benefits(question)
+        if len(matched) != 1:
+            return self.insufficient()
+        normalized = question.casefold()
+        # Limits alone cannot establish individual eligibility, balance, or payment.
+        if re.search(r"\b(remaining|balance|payable|paid|payment|approve my|eligible|eligibility)\b", normalized):
+            return self.insufficient()
+        kind = None
+        if re.search(r"\b(limit|amount|how much|budget)\b", normalized):
+            kind = "amount"
+        elif "approval" in normalized:
+            kind = "approval"
+        return self.answer(tenant, role, as_of, matched[0], kind)
+
+    @staticmethod
+    def _is_eligible(policy: dict[str, Any], tenant: str, role: str, as_of: date) -> bool:
         return (
             policy["tenant"].casefold() == tenant.casefold()
             and policy["permitted_role"].casefold() == role.casefold()
             and policy["approval_state"] == "Approved"
-            and effective_from <= as_of < effective_to
+            and date.fromisoformat(policy["effective_from"]) <= as_of < date.fromisoformat(policy["effective_to"])
         )
 
     @staticmethod
     def _is_relevant(policy: dict[str, Any], terms: tuple[str, ...]) -> bool:
-        text = policy["text"].casefold()
-        return any(term.casefold() in text for term in terms)
+        return any(matches(policy["text"], term) for term in terms)

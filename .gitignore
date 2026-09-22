@@ -5,4 +5,7 @@ __pycache__/
 *.pyc
 .idea/
 .vscode/settings.json
-
+target/
+.env
+.env.*
+*.log
