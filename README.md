@@ -203,10 +203,3 @@ The Python provider tests use controllable doubles; Java client tests use a loca
 
 Fixtures can be reproduced with `python scripts/create_fixtures.py`. This rewrites only the synthetic sample files and request JSON.
 
-## Submission notes
-
-- [Design decisions, limitations, time statement, and AI disclosure](docs/DECISIONS.md)
-- [Production design note (under 400 words)](docs/PRODUCTION.md)
-- Fill in your actual personal time spent before submission; it is deliberately not invented.
-- The task requires a public GitHub repository and the full reviewed commit SHA (`git rev-parse HEAD`). Commit only synthetic fixtures and source, not credentials, local environments, or build output.
-- Review and understand the implementation: the task's initial technical explanation and prediction exercise is without AI assistance.
