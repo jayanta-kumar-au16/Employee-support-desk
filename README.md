@@ -1,5 +1,7 @@
 # Employee Support Desk
 
+Optional live AI explanations and a persistent 50-call testing limit are available. See [AI foundation setup and deployment gates](docs/AI-FOUNDATION.md). Offline mode remains the default; full production deployment is not yet implemented.
+
 Local assessment implementation with a Spring Boot public API and a Python FastAPI service. It answers policy questions and produces human-review reports from batches of synthetic reimbursement documents. It never approves claims, initiates payments, or sends messages.
 
 ## Architecture
@@ -14,7 +16,7 @@ Caller -> Spring Boot :8080
                          eligible policies -> offline provider -> validated answer
 ```
 
-Java owns caller context, the public response, multipart validation, duplicate detection, item failure isolation, and batch ordering. Python owns extraction, evidence selection, policy outcomes, and generation. Internal requests contain server-derived tenant/role. Python endpoints have no separate authentication: bind them to loopback for this exercise and expose only Java to callers.
+Java owns caller context, the public response, multipart validation, duplicate detection, item failure isolation, and batch ordering. Python owns extraction, evidence selection, policy outcomes, and generation. Internal requests contain server-derived tenant/role. Set the same `INTERNAL_SERVICE_TOKEN` in both services to authenticate internal requests; without it the local exercise remains unauthenticated. Bind Python to loopback for local use. The public caller header is still a simulation, not production authentication.
 
 The offline provider is a deterministic model double. No API key, paid model, database, frontend, or OCR is required. Only eligible policy quotations reach it; document instructions cannot override identity or application behavior.
 
@@ -82,7 +84,7 @@ From the repository root:
 curl.exe -X POST http://localhost:8080/answer -H "Content-Type: application/json" -H "X-Caller-Id: atlas-employee-01" --data-binary "@examples/answer-request.json"
 ```
 
-Business results use HTTP 200 and `{status, answer, citations}`. Each citation has `chunk_id` and a verbatim `quote`.
+Business results use HTTP 200 and `{status, answer, citations, explanation}`. Each citation has `chunk_id` and a verbatim `quote`. The additive `explanation` field is null offline; optional live mode returns model-generated prose alongside the exact source answer. See the AI foundation guide for validation limitations.
 
 - `ANSWERED`: supported answer and eligible quotations.
 - `INSUFFICIENT_EVIDENCE`: null answer and empty citations.

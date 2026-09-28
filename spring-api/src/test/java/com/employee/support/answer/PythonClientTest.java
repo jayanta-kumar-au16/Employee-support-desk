@@ -21,11 +21,13 @@ class PythonClientTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicReference<String> received = new AtomicReference<>();
         AtomicReference<String> upgrade = new AtomicReference<>();
+        AtomicReference<String> token = new AtomicReference<>();
         server.createContext("/internal/answer", exchange -> {
             received.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             upgrade.set(exchange.getRequestHeaders().getFirst("Upgrade"));
+            token.set(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
             byte[] body = """
-                {"status":"ANSWERED","answer":"Policy text.","citations":[{"chunk_id":"p","quote":"Policy text."}]}
+                {"status":"ANSWERED","answer":"Policy text.","citations":[{"chunk_id":"p","quote":"Policy text."}],"explanation":"Generated explanation."}
                 """.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
@@ -34,8 +36,11 @@ class PythonClientTest {
         });
         server.start();
         try {
-            var client = new PythonClient("http://127.0.0.1:" + server.getAddress().getPort(), Duration.ofSeconds(1), Duration.ofSeconds(2));
-            assertEquals(PolicyStatus.ANSWERED, client.answer(request()).status());
+            var client = new PythonClient("http://127.0.0.1:" + server.getAddress().getPort(), Duration.ofSeconds(1), Duration.ofSeconds(2), "x".repeat(32));
+            var result = client.answer(request());
+            assertEquals(PolicyStatus.ANSWERED, result.status());
+            assertEquals("Generated explanation.", result.explanation());
+            assertEquals("x".repeat(32), token.get());
             assertTrue(received.get().contains("\"as_of\":\"2026-09-21\""));
             assertTrue(received.get().contains("\"tenant\":\"Atlas\""));
             assertNull(upgrade.get());

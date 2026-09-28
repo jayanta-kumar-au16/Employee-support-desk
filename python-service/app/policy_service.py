@@ -18,7 +18,7 @@ class PolicyService:
         return PolicyAnswer(status=PolicyStatus.INSUFFICIENT_EVIDENCE, answer=None, citations=[])
 
     def answer(self, tenant: str, role: str, as_of: date, benefit: str,
-               required_fact: str | None = None) -> PolicyAnswer:
+               required_fact: str | None = None, question: str | None = None) -> PolicyAnswer:
         normalized = benefit.strip().lower()
         terms = BENEFIT_TERMS.get(normalized, (normalized,))
         eligible = [
@@ -41,8 +41,9 @@ class PolicyService:
         # Complementary amount and approval rules are not automatically a conflict.
         if any(len(values) > 1 for values in facts.values()):
             return PolicyAnswer(status=PolicyStatus.CONFLICT, answer=None, citations=citations)
-        answer = self._generation.answer(tuple(p["text"] for p in policies))
-        return PolicyAnswer(status=PolicyStatus.ANSWERED, answer=answer, citations=citations)
+        answer, explanation = self._generation.compose(
+            question or f"Explain the applicable {normalized} policy terms.", tuple(p["text"] for p in policies))
+        return PolicyAnswer(status=PolicyStatus.ANSWERED, answer=answer, citations=citations, explanation=explanation)
 
     def answer_question(self, tenant: str, role: str, as_of: date, question: str) -> PolicyAnswer:
         matched = benefits(question)
@@ -57,7 +58,7 @@ class PolicyService:
             kind = "amount"
         elif "approval" in normalized:
             kind = "approval"
-        return self.answer(tenant, role, as_of, matched[0], kind)
+        return self.answer(tenant, role, as_of, matched[0], kind, question)
 
     @staticmethod
     def _is_eligible(policy: dict[str, Any], tenant: str, role: str, as_of: date) -> bool:

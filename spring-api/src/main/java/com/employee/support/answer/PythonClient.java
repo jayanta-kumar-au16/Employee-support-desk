@@ -16,10 +16,16 @@ public class PythonClient {
 
     private final RestClient restClient;
 
+    public PythonClient(String baseUrl, Duration connectTimeout, Duration readTimeout) {
+        this(baseUrl, connectTimeout, readTimeout, "");
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public PythonClient(
         @Value("${python-service.base-url}") String baseUrl,
         @Value("${python-service.connect-timeout}") Duration connectTimeout,
-        @Value("${python-service.read-timeout}") Duration readTimeout
+        @Value("${python-service.read-timeout}") Duration readTimeout,
+        @Value("${python-service.internal-token:}") String internalToken
     ) {
         HttpClient httpClient = HttpClient.newBuilder()
             // Use HTTP/1.1 for the Uvicorn service without an HTTP/2 upgrade attempt.
@@ -29,10 +35,14 @@ public class PythonClient {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(readTimeout);
 
-        this.restClient = RestClient.builder()
+        if (!internalToken.isEmpty() && internalToken.length() < 32) {
+            throw new IllegalArgumentException("Internal service token must contain at least 32 characters");
+        }
+        var builder = RestClient.builder()
             .baseUrl(baseUrl)
-            .requestFactory(requestFactory)
-            .build();
+            .requestFactory(requestFactory);
+        if (!internalToken.isEmpty()) builder.defaultHeader("X-Internal-Token", internalToken);
+        this.restClient = builder.build();
     }
 
     public AnswerResponse answer(InternalAnswerRequest request) {
