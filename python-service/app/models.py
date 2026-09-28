@@ -18,7 +18,7 @@ class InternalAnswerRequest(BaseModel):
     tenant: str = Field(min_length=1)
     role: str = Field(min_length=1)
     as_of: date
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=4000)
 
 
 class Citation(BaseModel):
@@ -30,6 +30,7 @@ class PolicyAnswer(BaseModel):
     status: PolicyStatus
     answer: str | None
     citations: list[Citation]
+    explanation: str | None = Field(default=None, max_length=2000)
 
 
 class InternalDocumentRequest(InternalAnswerRequest):

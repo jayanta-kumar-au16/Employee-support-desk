@@ -7,6 +7,7 @@ spring:
       max-request-size: 25MB
 
 python-service:
+  internal-token: ${INTERNAL_SERVICE_TOKEN:}
   base-url: ${PYTHON_SERVICE_BASE_URL:http://localhost:8000}
   connect-timeout: 2s
-  read-timeout: 5s
+  read-timeout: ${PYTHON_SERVICE_READ_TIMEOUT:5s}
