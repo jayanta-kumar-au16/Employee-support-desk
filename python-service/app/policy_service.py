@@ -1,16 +1,17 @@
 from datetime import date
-from typing import Any
 import re
 
-from app.evidence import BENEFIT_TERMS, benefits, matches, policy_fact
+from app.evidence import policy_fact
 from app.models import Citation, PolicyAnswer, PolicyStatus
 from app.policy_repository import PolicyRepository
 from app.provider import GenerationService
+from app.retrieval import PolicyRetriever, query_benefits
 
 
 class PolicyService:
     def __init__(self, repository: PolicyRepository, generation: GenerationService | None = None) -> None:
         self._repository = repository
+        self._retriever = PolicyRetriever(repository)
         self._generation = generation or GenerationService()
 
     @staticmethod
@@ -20,17 +21,9 @@ class PolicyService:
     def answer(self, tenant: str, role: str, as_of: date, benefit: str,
                required_fact: str | None = None, question: str | None = None) -> PolicyAnswer:
         normalized = benefit.strip().lower()
-        terms = BENEFIT_TERMS.get(normalized, (normalized,))
-        eligible = [
-            p for p in self._repository.find_all()
-            if self._is_eligible(p, tenant, role, as_of)
-            and self._is_relevant(p, terms)
-            and policy_fact(p["text"]) is not None
-        ]
-        unique = {(p["id"], p["text"]): p for p in eligible}
-        policies = sorted(unique.values(), key=lambda p: (p["id"], p["text"]))
-        if required_fact:
-            policies = [p for p in policies if policy_fact(p["text"])[0] == required_fact]
+        hits = self._retriever.retrieve(tenant, role, as_of, question or normalized, normalized, required_fact)
+        # Keep the public citation/answer ordering stable, independent of ranking.
+        policies = sorted((hit.policy for hit in hits), key=lambda p: (p["id"], p["text"]))
         if not policies:
             return self.insufficient()
         citations = [Citation(chunk_id=p["id"], quote=p["text"]) for p in policies]
@@ -46,7 +39,7 @@ class PolicyService:
         return PolicyAnswer(status=PolicyStatus.ANSWERED, answer=answer, citations=citations, explanation=explanation)
 
     def answer_question(self, tenant: str, role: str, as_of: date, question: str) -> PolicyAnswer:
-        matched = benefits(question)
+        matched = query_benefits(question)
         if len(matched) != 1:
             return self.insufficient()
         normalized = question.casefold()
@@ -59,16 +52,3 @@ class PolicyService:
         elif "approval" in normalized:
             kind = "approval"
         return self.answer(tenant, role, as_of, matched[0], kind, question)
-
-    @staticmethod
-    def _is_eligible(policy: dict[str, Any], tenant: str, role: str, as_of: date) -> bool:
-        return (
-            policy["tenant"].casefold() == tenant.casefold()
-            and policy["permitted_role"].casefold() == role.casefold()
-            and policy["approval_state"] == "Approved"
-            and date.fromisoformat(policy["effective_from"]) <= as_of < date.fromisoformat(policy["effective_to"])
-        )
-
-    @staticmethod
-    def _is_relevant(policy: dict[str, Any], terms: tuple[str, ...]) -> bool:
-        return any(matches(policy["text"], term) for term in terms)

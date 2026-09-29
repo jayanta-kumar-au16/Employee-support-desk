@@ -92,7 +92,7 @@ Business results use HTTP 200 and `{status, answer, citations, explanation}`. Ea
 
 Policies are filtered by tenant, role, exact Approved state, and `effective_from <= as_of < effective_to`. Policy records are separate from code, unchanged from the supplied corpus. Exact duplicate ID/text pairs are deduplicated, and citations are sorted. Explicit amount and approval facts can complement each other; disagreement within a fact category produces conflict.
 
-The vocabulary supports certification, home-office/home office, travel, training, and wellness/gym. Relevance requires a supported policy assertion, not merely a matching keyword. Amount questions require amount evidence. Individual payment, remaining-balance, and eligibility questions are conservatively unanswered because the supplied corpus cannot establish those conclusions.
+Policy retrieval uses local lexical RAG with BM25 ranking and controlled synonyms, including professional exam, working from home, business trips, and external courses. The vocabulary supports certification, home-office/home office, travel, training, and wellness/gym. Relevance requires a supported policy assertion, not merely a matching keyword. Amount questions require amount evidence. Individual payment, remaining-balance, and eligibility questions are conservatively unanswered because the supplied corpus cannot establish those conclusions. See [RAG implementation and examples](docs/RAG.md) for the retrieval flow and limitations.
 
 ## Batch intake
 
